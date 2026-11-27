@@ -7,7 +7,7 @@ Gerador de certificados de conclusão do Tratamento para Cessação do Tabagismo
 ## Como usar
 1. Preencha turma, período, cidade/data e as assinaturas (ficam salvos no navegador).
 2. Cole os nomes dos participantes, um por linha.
-3. Clique em **Gerar PDF** — sai um PDF com um certificado por página (A4 paisagem).
+3. Clique em **PDFs individuais (.zip)** — baixa um .zip com um PDF por participante (A4 paisagem). Ou **PDF único** para todos num arquivo só.
 4. Use **Baixar só este** para emitir uma segunda via individual.
 
 Tudo roda no navegador; nenhum dado é enviado para servidor.

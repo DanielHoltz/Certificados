@@ -94,7 +94,7 @@ textarea{resize:vertical}
 <body>
 <div class="wrap">
   <h2>Certificados do grupo de tabagismo</h2>
-  <p class="sub">Para cada nova turma, mude a turma, o período e a data, cole os nomes (um por linha) e gere um PDF com um certificado por página. Tudo fica salvo neste navegador para a próxima turma.</p>
+  <p class="sub">Para cada nova turma, mude a turma, o período e a data, cole os nomes (um por linha) e baixe um .zip com um PDF para cada participante (ou um PDF único com todos). Tudo fica salvo neste navegador para a próxima turma.</p>
 
   <div class="stage">
     <div class="fit" id="fit"></div>
@@ -142,7 +142,7 @@ textarea{resize:vertical}
   </div>
 </div>
 
-<div class="bar"><span class="msg" id="msg"></span><button class="pri" id="gerar">Gerar PDF</button></div>
+<div class="bar"><span class="msg" id="msg"></span><button id="unico">PDF único</button><button class="pri" id="gerar">PDFs individuais (.zip)</button></div>
 <div id="render"></div>
 
 <template id="t0">
@@ -170,6 +170,7 @@ textarea{resize:vertical}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script>
 {
 const $ = id => document.getElementById(id);
@@ -228,8 +229,8 @@ function render() {
   preencher(preview, L[idx]);
   $('who').textContent = L.length ? `${idx + 1} de ${L.length} · ${L[idx]}` : 'Nenhum nome na lista';
   $('cnt').textContent = L.length === 1 ? '1 participante' : `${L.length} participantes`;
-  $('gerar').textContent = L.length ? `Gerar PDF (${L.length})` : 'Gerar PDF';
-  $('gerar').disabled = $('one').disabled = !L.length;
+  $('gerar').textContent = L.length ? `PDFs individuais (${L.length}) · .zip` : 'PDFs individuais (.zip)';
+  $('gerar').disabled = $('unico').disabled = $('one').disabled = !L.length;
   $('prev').disabled = idx <= 0; $('next').disabled = idx >= L.length - 1;
 }
 
@@ -247,37 +248,50 @@ document.addEventListener('keydown', e => { if (e.target.closest('input,textarea
 
 let dl = null;
 const msg = t => $('msg').textContent = t;
-async function gerarPDF(lista, arquivo) {
-  if (!window.jspdf || !window.html2canvas) { msg('Não consegui carregar o gerador de PDF. Recarregue a página.'); return; }
-  $('gerar').disabled = $('one').disabled = true;
+async function gerarPDF(lista, arquivo, modo) {
+  if (!window.jspdf || !window.html2canvas || (modo === 'zip' && !window.JSZip)) { msg('Não consegui carregar o gerador de PDF. Recarregue a página.'); return; }
+  const btns = ['gerar', 'unico', 'one']; btns.forEach(b => $(b).disabled = true);
   try {
     await document.fonts.ready;
-    const doc = new jspdf.jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
+    const novoDoc = () => new jspdf.jsPDF({orientation:'landscape', unit:'mm', format:'a4'});
     const el = novoCert(); $('render').appendChild(el);
+    const zip = modo === 'zip' ? new JSZip() : null, usados = {};
+    let doc = zip ? null : novoDoc();
     for (let i = 0; i < lista.length; i++) {
       msg(`Gerando ${i + 1} de ${lista.length}…`);
       preencher(el, lista[i]);
       const cv = await html2canvas(el, {scale:2, backgroundColor:'#ffffff', useCORS:true, logging:false});
-      if (i) doc.addPage();
-      doc.addImage(cv.toDataURL('image/jpeg', .92), 'JPEG', 0, 0, 297, 210);
+      const img = cv.toDataURL('image/jpeg', .92);
+      if (zip) {
+        const d = novoDoc(); d.addImage(img, 'JPEG', 0, 0, 297, 210);
+        let nm = 'certificado-' + (slug(lista[i]) || 'participante');
+        usados[nm] = (usados[nm] || 0) + 1; if (usados[nm] > 1) nm += '-' + usados[nm];
+        zip.file(nm + '.pdf', d.output('arraybuffer'));
+      } else {
+        if (i) doc.addPage();
+        doc.addImage(img, 'JPEG', 0, 0, 297, 210);
+      }
     }
     el.remove();
-    const blob = doc.output('blob');
+    if (zip) msg('Compactando…');
+    const blob = zip ? await zip.generateAsync({type:'blob'}) : doc.output('blob');
+    const pronto = () => msg(zip ? `Pronto: ${lista.length} PDF${lista.length > 1 ? 's' : ''} individuais no .zip.` : `PDF pronto: ${lista.length} certificado${lista.length > 1 ? 's' : ''}.`);
     if (!dl) {
       if (window.claude) { msg('Este visualizador não permite baixar arquivos. Abra a página no navegador do computador.'); return; }
       const u = URL.createObjectURL(blob), l = document.createElement('a'); l.href = u; l.download = arquivo; document.body.appendChild(l); l.click(); l.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
-      msg(`PDF pronto: ${lista.length} certificado${lista.length > 1 ? 's' : ''}.`); return;
+      pronto(); return;
     }
     msg('Confirme o download…');
     await dl.save({filename: arquivo, data: blob});
-    msg(`PDF pronto: ${lista.length} certificado${lista.length > 1 ? 's' : ''}.`);
+    pronto();
   } catch (e) {
-    msg(e && e.code === 'declined' ? 'Download cancelado.' : e && e.code === 'host_unavailable' ? 'Este app não salva arquivos — abra a página no navegador.' : 'Não foi possível gerar o PDF. Tente de novo.');
+    msg(e && e.code === 'declined' ? 'Download cancelado.' : e && e.code === 'host_unavailable' ? 'Este app não salva arquivos — abra a página no navegador.' : 'Não foi possível gerar os arquivos. Tente de novo.');
   } finally { render(); }
 }
 const slug = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
-$('gerar').addEventListener('click', () => gerarPDF(nomes(), `certificados-tabagismo-${slug(st.periodo) || 'turma'}.pdf`));
-$('one').addEventListener('click', () => { const n = nomes()[idx]; if (n) gerarPDF([n], `certificado-${slug(n)}.pdf`); });
+$('gerar').addEventListener('click', () => gerarPDF(nomes(), `certificados-tabagismo-${slug(st.periodo) || 'turma'}.zip`, 'zip'));
+$('unico').addEventListener('click', () => gerarPDF(nomes(), `certificados-tabagismo-${slug(st.periodo) || 'turma'}.pdf`, 'unico'));
+$('one').addEventListener('click', () => { const n = nomes()[idx]; if (n) gerarPDF([n], `certificado-${slug(n)}.pdf`, 'unico'); });
 
 montar();
 document.fonts && document.fonts.ready.then(render);
